@@ -1,0 +1,22 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context=vm.createContext({});vm.runInContext(fs.readFileSync('dist/scan-tracker.js','utf8'),context);const Tracker=vm.runInContext('ScanTracker',context);
+const exact=name=>[{name,score:1.001}],fuzzy=name=>[{name,score:.87}];
+let t=new Tracker();assert.equal(t.observe(exact('pikachu')),null);assert.equal(t.observe(exact('pikachu')).name,'pikachu');
+for(let i=0;i<5;i++)assert.equal(t.observe(exact('pikachu')),null);
+t.observe([]);assert.equal(t.observe(exact('pikachu')),null,'briefly losing the card does not reannounce it');
+assert.equal(t.observe(exact('charizard')),null);assert.equal(t.observe(exact('charizard')).name,'charizard');
+assert.equal(t.observe(exact('pikachu')),null);assert.equal(t.observe(exact('pikachu')).name,'pikachu');
+t=new Tracker();t.observe(exact('pikachu'));t.observe(exact('charizard'));assert.equal(t.observe(exact('pikachu')),null,'alternating readings cannot lock');
+t.reset();assert.equal(t.observe(fuzzy('pikachu')),null);assert.equal(t.observe(fuzzy('pikachu')),null);assert.equal(t.observe(fuzzy('pikachu')).name,'pikachu');
+t.reset();for(let i=0;i<4;i++)assert.equal(t.observe([{name:'nidoran-f',score:1},{name:'nidoran-m',score:1}]),null,'ambiguous species need a tap');
+t.reset();t.observe(exact('pikachu'),0);t.observe([],200);assert.equal(t.observe(exact('pikachu'),900).name,'pikachu','brief motion blur preserves good evidence');
+t.observe(exact('pikachu'));t.retry('pikachu');t.observe(exact('pikachu'));assert.equal(t.observe(exact('pikachu')).name,'pikachu','lookup failures can be retried');
+t.reset();t.observe(exact('pikachu'),0);t.observe([],5100);assert.equal(t.observe(exact('pikachu'),5200),null,'old evidence expires');
+t.reset();t.observe(exact('pikachu'),0,42);assert.equal(t.observe(exact('pikachu'),100,42),null,'one captured frame cannot vote twice');assert.equal(t.observe(exact('pikachu'),200,43).name,'pikachu');
+t.reset();t.observe(exact('pikachu'),0);t.observe(exact('charizard'),100);assert.equal(t.observe(exact('charizard'),200).name,'charizard','clear card changes discard the previous candidate');
+console.log('PASS automatic confirmation, repeated-card suppression, card changes, fuzzy/ambiguous names, and failed-lookup retry');
+// A stale frame must never cancel the newly opened camera's timer.
+const source=fs.readFileSync('dist/app.js','utf8');let cleared=0,scheduled=0;
+const c=vm.createContext({cameraSession:2,autoTimer:99,autoActive:true,stream:{},document:{hidden:false},clearTimeout:()=>cleared++,setTimeout:()=>++scheduled,autoScan:()=>{}});
+vm.runInContext(source.slice(source.indexOf('function scheduleAuto('),source.indexOf('async function autoScan(')),c);
+c.scheduleAuto(1);assert.equal(cleared,0);assert.equal(scheduled,0);c.scheduleAuto(2);assert.equal(scheduled,1);console.log('PASS camera restart ignores stale scan timer');
